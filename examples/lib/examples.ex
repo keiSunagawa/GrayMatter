@@ -1,5 +1,5 @@
 defmodule KVS do
-  import GrayMatter.Command
+  import Graymatter.Command
   defcommand Put do
     key :: String.t()
     value :: non_neg_integer()
@@ -22,7 +22,7 @@ defmodule KVS.Inmemory do
   import Witchcraft.Chain
   import Quark.Compose
 
-  def interpreter(%Roll{roll: %Coyoneda{f: f, m: m}}) do
+  def interpreter(%Roll{roll: %Graymatter.Coyoneda{f: f, m: m}}) do
     case m do
       %KVS.Put{key: k, value: v, next: n} ->
         State.state(fn st ->  {n, Map.put(st, k, v)} end)

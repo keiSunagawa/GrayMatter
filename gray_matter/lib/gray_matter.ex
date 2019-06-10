@@ -1,2 +1,0 @@
-defmodule GrayMatter do
-end

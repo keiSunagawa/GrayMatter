@@ -1,4 +1,4 @@
-defmodule GrayMatter.Command.Internal do
+defmodule Graymatter.Command.Internal do
   def get_next_type({:__block__, _, args}) do
     next = Enum.find(args, fn ast ->
       case ast do
@@ -24,9 +24,9 @@ defmodule GrayMatter.Command.Internal do
   end
 end
 
-defmodule GrayMatter.Command do
+defmodule Graymatter.Command do
   import Algae
-  import GrayMatter.Command.Internal
+  import Graymatter.Command.Internal
 
   defmacro defcommand(name, do: define) do
     #IO.inspect(name)
@@ -49,7 +49,7 @@ defmodule GrayMatter.Command do
 
       def unquote(fname)(unquote_splicing(fargs)) do
         unquote(name).new(unquote_splicing(fparams), unquote(nextv))
-        |> Coyoneda.lift()
+        |> Graymatter.Coyoneda.lift()
         |> Algae.Free.free()
       end
     end
