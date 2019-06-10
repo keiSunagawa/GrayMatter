@@ -24,14 +24,12 @@ defmodule Graymatter.Command.Internal do
   end
 end
 
+# TODO error handling
 defmodule Graymatter.Command do
   import Algae
   import Graymatter.Command.Internal
 
   defmacro defcommand(name, do: define) do
-    #IO.inspect(name)
-    #IO.inspect(define)
-
     {:__aliases__, _, atmname} = name
     fname = Algae.Internal.module_to_field(atmname)
 
@@ -42,8 +40,6 @@ defmodule Graymatter.Command do
                          end
     fargs = Enum.take(args, length(args) - 1)
     fparams = Enum.map(fargs, fn {_, _, [var|_]} -> var end)
-    #IO.inspect(args)
-    #IO.inspect(fargs)
     quote do
       defdata unquote(name), do: unquote(define)
 
@@ -55,7 +51,24 @@ defmodule Graymatter.Command do
     end
   end
 
-  defmacro __using__(_opts) do
-    # import coyoneda and free
+  defmacro defhandler(apply, do: patterns) do
+    combinetor = quote do: (Quark.Compose.compose(&interpreter/1, f))
+    ast = Enum.map(patterns, fn p ->
+      with {:->, l, [left, right]} <- p do
+        r2 = {:>>>, [context: Elixir, import: Witchcraft.Chain], [right, combinetor]}
+        {:->, l, [left, r2]}
+      end
+    end)
+    quote do
+      def interpreter(%Algae.Free.Roll{roll: %Graymatter.Coyoneda{f: f, m: m}}) do
+        case m do
+          unquote(ast)
+        end
+      end
+      def interpreter(%Algae.Free.Pure{pure: a}), do: unquote(apply).(a)
+    end
   end
+  # defmacro __using__(_opts) do
+
+  # end
 end

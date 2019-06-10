@@ -17,50 +17,76 @@ defmodule KVS do
 end
 
 defmodule KVS.Inmemory do
-  alias Algae.Free.{Roll, Pure}
   alias Algae.State
-  import Witchcraft.Chain
-  import Quark.Compose
+  import Graymatter.Command
 
-  def interpreter(%Roll{roll: %Graymatter.Coyoneda{f: f, m: m}}) do
-    case m do
-      %KVS.Put{key: k, value: v, next: n} ->
-        State.state(fn st ->  {n, Map.put(st, k, v)} end)
-        >>> ((&interpreter/1) <|> f)
-      %KVS.Get{key: k, next: nf} ->
-        State.state(fn st ->
-          {_, v} = Map.fetch(st, k)
-          {nf.(v), st}
-        end) >>> ((&interpreter/1) <|> f)
-      %KVS.SafeModify{key: k, value: v, next: nf} ->
-        State.state(fn st ->
-          case  Map.fetch(st, k) do
-            {:ok, _} -> {nf.(false), st}
-            _ -> {nf.(true), Map.put(st, k, v)}
-          end
-        end) >>> ((&interpreter/1) <|> f)
-    end
+  # Free ~> State
+  defhandler fn v -> State.state(&({v, &1})) end do
+    %KVS.Put{key: k, value: v, next: n} ->
+      State.state(fn st ->  {n, Map.put(st, k, v)} end)
+    %KVS.Get{key: k, next: nf} ->
+      State.state(fn st ->
+        {_, v} = Map.fetch(st, k)
+        {nf.(v), st}
+      end)
+    %KVS.SafeModify{key: k, value: v, next: nf} ->
+      State.state(fn st ->
+        case  Map.fetch(st, k) do
+          {:ok, _} -> {nf.(false), st}
+          _ -> {nf.(true), Map.put(st, k, v)}
+        end
+      end)
   end
-  def interpreter(%Pure{pure: a}) do
-    IO.inspect(a)
-    State.state(fn st ->  {a, st} end)
+end
+
+defmodule KVS.Agent do
+  alias Algae.Reader
+  import Graymatter.Command
+
+  # Free ~> Reader
+  defhandler fn a -> Reader.new(fn _ -> a end) end do
+    %KVS.Put{key: k, value: v, next: n} ->
+      Reader.new(fn pid ->
+        Agent.update(pid, fn st ->  Map.put(st, k, v) end)
+        n
+      end)
+    %KVS.Get{key: k, next: nf} ->
+      Reader.new(fn pid ->
+        {:ok, res} = Agent.get(pid, fn st ->  Map.fetch(st, k) end)
+        nf.(res)
+      end)
+    %KVS.SafeModify{key: k, value: v, next: nf} ->
+      Reader.new(fn pid ->
+        case Agent.get(pid, fn st ->  Map.fetch(st, k) end) do
+          {:ok, _} -> nf.(false)
+          _ ->
+            Agent.update(pid, fn st ->  Map.put(st, k, v) end)
+            nf.(true)
+        end
+      end)
   end
 end
 
 defmodule Examples do
   import KVS
   import Witchcraft.Chain
-  def run do
-    m = chain do
+
+  def program do
+    chain do
       put("a", 1)
       o <- get("a")
-      a <- safemodify("a", 2)
-      let _ = log([o, a])
-      get("a")
+      is_update <- safemodify("a", 2)
+      if is_update, do: put("b", 3), else: put("b", o+1)
+      get("b")
     end
-
-    KVS.Inmemory.interpreter(m).runner.(%{})
   end
 
-  def log(xs), do: IO.inspect(xs)
+  def run do
+    KVS.Inmemory.interpreter(program()).runner.(%{})
+  end
+
+  def run2 do
+    {:ok, pid} = Agent.start(fn -> %{} end)
+    KVS.Agent.interpreter(program()).reader.(pid)
+  end
 end
