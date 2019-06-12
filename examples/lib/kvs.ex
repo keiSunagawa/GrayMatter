@@ -67,7 +67,7 @@ defmodule KVS.Agent do
   end
 end
 
-defmodule Examples do
+defmodule KVS.Examples do
   import KVS
   import Witchcraft.Chain
 
