@@ -1,5 +1,8 @@
 defmodule KVS do
   import Graymatter.Command
+  alias Algae.Maybe
+  alias Algae.Free
+
   defcommand Put do
     key :: String.t()
     value :: non_neg_integer()
@@ -7,17 +10,29 @@ defmodule KVS do
   end
   defcommand Get do
     key :: String.t()
-    next :: (non_neg_integer() -> any())
+    next :: (Maybe.t() -> any())
   end
-  defcommand SafeModify do
-    key :: String.t()
-    value :: non_neg_integer()
-    next ::  (boolean() -> any())
+
+  def pure(a), do: Free.new(a)
+
+  import Witchcraft.Chain
+
+  def safe_modify(key, value) do
+    chain do
+      v <- get(key)
+      let p = (case v do
+             %Maybe.Just{just: _} -> false
+             %Maybe.Nothing{} -> true
+           end)
+      if p, do: put(key, value), else: pure(nil)
+      pure(p)
+    end
   end
 end
 
 defmodule KVS.Inmemory do
   alias Algae.State
+  alias Algae.Maybe
   import Graymatter.Command
 
   # Free ~> State
@@ -26,21 +41,18 @@ defmodule KVS.Inmemory do
       State.state(fn st ->  {n, Map.put(st, k, v)} end)
     %KVS.Get{key: k, next: nf} ->
       State.state(fn st ->
-        {_, v} = Map.fetch(st, k)
+        v = case Map.fetch(st, k) do
+              {:ok, v} -> Maybe.new(v)
+              _ -> Maybe.new()
+            end
         {nf.(v), st}
-      end)
-    %KVS.SafeModify{key: k, value: v, next: nf} ->
-      State.state(fn st ->
-        case  Map.fetch(st, k) do
-          {:ok, _} -> {nf.(false), st}
-          _ -> {nf.(true), Map.put(st, k, v)}
-        end
       end)
   end
 end
 
 defmodule KVS.Agent do
   alias Algae.Reader
+  alias Algae.Maybe
   import Graymatter.Command
 
   # Free ~> Reader
@@ -52,17 +64,11 @@ defmodule KVS.Agent do
       end)
     %KVS.Get{key: k, next: nf} ->
       Reader.new(fn pid ->
-        {:ok, res} = Agent.get(pid, fn st ->  Map.fetch(st, k) end)
-        nf.(res)
-      end)
-    %KVS.SafeModify{key: k, value: v, next: nf} ->
-      Reader.new(fn pid ->
-        case Agent.get(pid, fn st ->  Map.fetch(st, k) end) do
-          {:ok, _} -> nf.(false)
-          _ ->
-            Agent.update(pid, fn st ->  Map.put(st, k, v) end)
-            nf.(true)
-        end
+        v = case Agent.get(pid, fn st ->  Map.fetch(st, k) end) do
+              {:ok, v} -> Maybe.new(v)
+              _ -> Maybe.new()
+            end
+        nf.(v)
       end)
   end
 end
@@ -75,8 +81,8 @@ defmodule KVS.Examples do
     chain do
       put("a", 1)
       o <- get("a")
-      is_update <- safemodify("a", 2)
-      if is_update, do: put("b", 3), else: put("b", o+1)
+      is_update <- safe_modify("a", 2)
+      if is_update, do: put("b", 3), else: put("b", o.just+1)
       get("b")
     end
   end
